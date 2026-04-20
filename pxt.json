@@ -1,7 +1,7 @@
 {
-    "name": "neopixel",
+    "name": "bitbox",
     "version": "0.6.15",
-    "description": "AdaFruit NeoPixel driver",
+    "description": "NeoPixel LED control extension blocks for micro:bit with AI data parsing support",
     "license": "MIT",
     "dependencies": {
         "core": "*"
