@@ -1,72 +1,73 @@
 /**
- * Well known colors for a NeoPixel strip
+ * 네오픽셀 LED 색상 목록
  */
 enum NeoPixelColors {
-    //% block=red
+    //% block=빨간색(red)
     Red = 0xFF0000,
-    //% block=orange
+    //% block=주황색(orange)
     Orange = 0xFFA500,
-    //% block=yellow
+    //% block=노란색(yellow)
     Yellow = 0xFFFF00,
-    //% block=green
+    //% block=초록색(green)
     Green = 0x00FF00,
-    //% block=blue
+    //% block=파란색(blue)
     Blue = 0x0000FF,
-    //% block=indigo
-    Indigo = 0x4b0082,
-    //% block=violet
+    //% block=남색(indigo)
+    Indigo = 0x000080,
+    //% block=보라색(violet)
     Violet = 0x8a2be2,
-    //% block=purple
-    Purple = 0xFF00FF,
-    //% block=white
+    //% block=흰색(white)
     White = 0xFFFFFF,
-    //% block=black
+    //% block=끄기
     Black = 0x000000
 }
 
 /**
- * Different modes for RGB or RGB+W NeoPixel strips
+ * 네오픽셀 연결 형식
  */
 enum NeoPixelMode {
-    //% block="RGB (GRB format)"
-    RGB = 0,
+    //% block="RGB (GRB 형식)"
+    RGB = 1,
     //% block="RGB+W"
-    RGBW = 1,
-    //% block="RGB (RGB format)"
-    RGB_RGB = 2
+    RGBW = 2,
+    //% block="RGB (RGB 형식)"
+    RGB_RGB = 3
 }
 
 /**
- * Functions to operate NeoPixel strips.
+ * bit box 네오픽셀 LED 제어 블록
  */
-//% weight=5 color=#2699BF icon="\uf110"
-namespace neopixel {
+//% weight=5 color=#58ACFA icon="\uf1b2" block="bit box"
+namespace bitbox {
     //% shim=sendBufferAsm
     function sendBuffer(buf: Buffer, pin: DigitalPin) {
     }
 
     /**
-     * A NeoPixel strip
+     * 네오픽셀 스트립 객체
      */
     export class Strip {
-        buf: Buffer;
+        buffer: Buffer;
         pin: DigitalPin;
-        // TODO: encode as bytes instead of 32bit
-        brightness: number;
-        start: number; // start offset in LED strip
-        _length: number; // number of LEDs
-        _mode: NeoPixelMode;
-        _matrixWidth: number; // number of leds in a matrix - if any
-        _matrixChain: number; // the connection type of matrix chain
-        _matrixRotation: number; // the rotation type of matrix
+        brightness: number;  // 밝기 (0-255)
+        start: number;       // LED 스트립 시작 오프셋
+        _length: number;     // LED 개수
+        mode: NeoPixelMode;
+        matrixWidth: number;
+        matrixChain: number;
+        matrixRotation: number;
+
+        // ======================== 빛박 제어(기초) ========================
 
         /**
-         * Shows all LEDs to a given color (range 0-255 for r, g, b). 
-         * @param rgb RGB color of the LED
+         * 모든 LED를 지정한 색상으로 켭니다.
+         * @param rgb LED 색상
          */
-        //% blockId="neopixel_set_strip_color" block="%strip|show color %rgb=neopixel_colors" 
-        //% weight=85 blockGap=8
-        //% parts="neopixel"
+        //% blockId="bitbox_set_strip_color"
+        //% block="%strip| 라이트를 모두 %rgb=bitbox_colors| 으로 켜기"
+        //% strip.defl=strip
+        //% group="빛박 제어(기초)"
+        //% weight=70 blockGap=8
         showColor(rgb: number) {
             rgb = rgb >> 0;
             this.setAllRGB(rgb);
@@ -74,13 +75,99 @@ namespace neopixel {
         }
 
         /**
-         * Shows a rainbow pattern on all LEDs. 
-         * @param startHue the start hue value for the rainbow, eg: 1
-         * @param endHue the end hue value for the rainbow, eg: 360
+         * 모든 LED를 끕니다.
          */
-        //% blockId="neopixel_set_strip_rainbow" block="%strip|show rainbow from %startHue|to %endHue" 
-        //% weight=85 blockGap=8
-        //% parts="neopixel"
+        //% blockId="bitbox_clear"
+        //% block="%strip| 라이트 모두 끄기"
+        //% strip.defl=strip
+        //% group="빛박 제어(기초)"
+        //% weight=60 blockGap=8
+        clear(): void {
+            const stride = this.mode === NeoPixelMode.RGBW ? 4 : 3;
+            this.buffer.fill(0, this.start * stride, this._length * stride);
+            this.show();
+        }
+
+        /**
+         * LED 스트립의 밝기를 설정합니다.
+         * @param brightness 밝기 값 (0~255), eg: 128
+         */
+        //% blockId="bitbox_set_brightness"
+        //% block="%strip| 라이트의 밝기를 %brightness 로 변경하기"
+        //% strip.defl=strip
+        //% brightness.min=0 brightness.max=255
+        //% group="빛박 제어(기초)"
+        //% weight=80 blockGap=8
+        setBrightness(brightness: number): void {
+            this.brightness = brightness & 0xff;
+        }
+
+        /**
+         * LED 스트립의 일부 범위를 선택합니다.
+         * @param start 시작 위치
+         * @param length LED 개수, eg: 8
+         */
+        //% blockId="bitbox_range"
+        //% block="%strip| 의 %start| 번째부터 %length| 개의 라이트"
+        //% strip.defl=strip
+        //% length.defl=8
+        //% group="빛박 제어(기초)"
+        //% weight=90 blockGap=8
+        //% blockSetVariable=range
+        createRange(start: number, length: number): Strip {
+            start = start >> 0;
+            length = length >> 0;
+            let strip = new Strip();
+            strip.buffer = this.buffer;
+            strip.pin = this.pin;
+            strip.brightness = this.brightness;
+            strip.start = this.start + Math.clamp(0, this._length - 1, start);
+            strip._length = Math.clamp(0, this._length - (strip.start - this.start), length);
+            strip.matrixWidth = 0;
+            strip.mode = this.mode;
+            return strip;
+        }
+
+        // ======================== 빛박 제어(심화) ========================
+
+        /**
+         * 설정한 내용을 LED 스트립에 표시합니다.
+         */
+        //% blockId="bitbox_show"
+        //% block="%strip| 라이트를 설정한대로 켜기"
+        //% strip.defl=strip
+        //% group="빛박 제어(심화)"
+        //% weight=80 blockGap=8
+        show() {
+            sendBuffer(this.buffer, this.pin);
+        }
+
+        /**
+         * 특정 위치의 LED 색상을 설정합니다. (표시하려면 '설정한대로 켜기' 블록 필요)
+         * @param pixelOffset LED 위치 번호
+         * @param rgb LED 색상
+         */
+        //% blockId="bitbox_set_pixel_color"
+        //% block="%strip| 의 %pixelOffset| 번째 라이트 색상을 %rgb=bitbox_colors 으로 설정하기"
+        //% strip.defl=strip
+        //% group="빛박 제어(심화)"
+        //% weight=90 blockGap=8
+        setPixelColor(pixelOffset: number, rgb: number): void {
+            this.setPixelRGB(pixelOffset >> 0, rgb >> 0);
+        }
+
+        /**
+         * 모든 LED에 무지개 패턴을 표시합니다.
+         * @param startHue 시작 색조 값, eg: 1
+         * @param endHue 끝 색조 값, eg: 360
+         */
+        //% blockId="bitbox_set_strip_rainbow"
+        //% block="%strip| 라이트 무지개 효과 - 시작색: %startHue|, 종료색: %endHue"
+        //% strip.defl=strip
+        //% startHue.min=0 startHue.max=360
+        //% endHue.min=0 endHue.max=360
+        //% group="빛박 제어(심화)"
+        //% weight=70 blockGap=8
         showRainbow(startHue: number = 1, endHue: number = 360) {
             if (this._length <= 0) return;
 
@@ -91,46 +178,40 @@ namespace neopixel {
             const steps = this._length;
             const direction = HueInterpolationDirection.Clockwise;
 
-            //hue
-            const h1 = startHue;
-            const h2 = endHue;
-            const hDistCW = ((h2 + 360) - h1) % 360;
-            const hStepCW = Math.idiv((hDistCW * 100), steps);
-            const hDistCCW = ((h1 + 360) - h2) % 360;
-            const hStepCCW = Math.idiv(-(hDistCCW * 100), steps);
-            let hStep: number;
+            const hue1 = startHue;
+            const hue2 = endHue;
+            const hueDistCW = ((hue2 + 360) - hue1) % 360;
+            const hueStepCW = Math.idiv((hueDistCW * 100), steps);
+            const hueDistCCW = ((hue1 + 360) - hue2) % 360;
+            const hueStepCCW = Math.idiv(-(hueDistCCW * 100), steps);
+            let hueStep: number;
             if (direction === HueInterpolationDirection.Clockwise) {
-                hStep = hStepCW;
+                hueStep = hueStepCW;
             } else if (direction === HueInterpolationDirection.CounterClockwise) {
-                hStep = hStepCCW;
+                hueStep = hueStepCCW;
             } else {
-                hStep = hDistCW < hDistCCW ? hStepCW : hStepCCW;
+                hueStep = hueDistCW < hueDistCCW ? hueStepCW : hueStepCCW;
             }
-            const h1_100 = h1 * 100; //we multiply by 100 so we keep more accurate results while doing interpolation
+            const hue1_100 = hue1 * 100;
 
-            //sat
-            const s1 = saturation;
-            const s2 = saturation;
-            const sDist = s2 - s1;
-            const sStep = Math.idiv(sDist, steps);
-            const s1_100 = s1 * 100;
+            const sat1 = saturation;
+            const satDist = saturation - sat1;
+            const satStep = Math.idiv(satDist, steps);
+            const sat1_100 = sat1 * 100;
 
-            //lum
-            const l1 = luminance;
-            const l2 = luminance;
-            const lDist = l2 - l1;
-            const lStep = Math.idiv(lDist, steps);
-            const l1_100 = l1 * 100
+            const lum1 = luminance;
+            const lumDist = luminance - lum1;
+            const lumStep = Math.idiv(lumDist, steps);
+            const lum1_100 = lum1 * 100;
 
-            //interpolate
             if (steps === 1) {
-                this.setPixelColor(0, hsl(h1 + hStep, s1 + sStep, l1 + lStep))
+                this.setPixelColor(0, hsl(hue1 + hueStep, sat1 + satStep, lum1 + lumStep));
             } else {
                 this.setPixelColor(0, hsl(startHue, saturation, luminance));
                 for (let i = 1; i < steps - 1; i++) {
-                    const h = Math.idiv((h1_100 + i * hStep), 100) + 360;
-                    const s = Math.idiv((s1_100 + i * sStep), 100);
-                    const l = Math.idiv((l1_100 + i * lStep), 100);
+                    const h = Math.idiv((hue1_100 + i * hueStep), 100) + 360;
+                    const s = Math.idiv((sat1_100 + i * satStep), 100);
+                    const l = Math.idiv((lum1_100 + i * lumStep), 100);
                     this.setPixelColor(i, hsl(h, s, l));
                 }
                 this.setPixelColor(steps - 1, hsl(endHue, saturation, luminance));
@@ -139,15 +220,15 @@ namespace neopixel {
         }
 
         /**
-         * Displays a vertical bar graph based on the `value` and `high` value.
-         * If `high` is 0, the chart gets adjusted automatically.
-         * @param value current value to plot
-         * @param high maximum value, eg: 255
+         * 값에 따라 LED로 막대 그래프를 표시합니다.
+         * @param value 현재 값
+         * @param high 최대 값, eg: 255
          */
-        //% weight=84
-        //% blockId=neopixel_show_bar_graph block="%strip|show bar graph of %value|up to %high" 
-        //% icon="\uf080"
-        //% parts="neopixel"
+        //% blockId="bitbox_show_bar_graph"
+        //% block="%strip| 라이트 그래프 효과 - 값: %value|, 최대값: %high"
+        //% strip.defl=strip
+        //% group="빛박 제어(심화)"
+        //% weight=60 blockGap=8
         showBarGraph(value: number, high: number): void {
             if (high <= 0) {
                 this.clear();
@@ -168,263 +249,127 @@ namespace neopixel {
                 for (let i = 0; i < n; ++i) {
                     if (i <= v) {
                         const b = Math.idiv(i * 255, n1);
-                        this.setPixelColor(i, neopixel.rgb(b, 0, 255 - b));
+                        this.setPixelColor(i, bitbox.rgb(b, 0, 255 - b));
+                    } else {
+                        this.setPixelColor(i, 0);
                     }
-                    else this.setPixelColor(i, 0);
                 }
             }
             this.show();
         }
 
         /**
-         * Set LED to a given color (range 0-255 for r, g, b). 
-         * You need to call ``show`` to make the changes visible.
-         * @param pixeloffset position of the NeoPixel in the strip
-         * @param rgb RGB color of the LED
+         * LED를 앞으로 이동하고 빈 자리는 꺼짐으로 채웁니다. (표시하려면 '설정한대로 켜기' 블록 필요)
+         * @param offset 이동할 픽셀 수, eg: 1
          */
-        //% blockId="neopixel_set_pixel_color" block="%strip|set pixel color at %pixeloffset|to %rgb=neopixel_colors" 
-        //% blockGap=8
-        //% weight=80
-        //% parts="neopixel" advanced=true
-        setPixelColor(pixeloffset: number, rgb: number): void {
-            this.setPixelRGB(pixeloffset >> 0, rgb >> 0);
+        //% blockId="bitbox_shift"
+        //% block="%strip| 라이트 %offset| 칸 이동"
+        //% strip.defl=strip
+        //% group="빛박 제어(심화)"
+        //% weight=50 blockGap=8
+        shift(offset: number = 1): void {
+            offset = offset >> 0;
+            const stride = this.mode === NeoPixelMode.RGBW ? 4 : 3;
+            this.buffer.shift(-offset * stride, this.start * stride, this._length * stride);
         }
 
         /**
-         * Sets the number of pixels in a matrix shaped strip
-         * @param width number of pixels in a row
-	 * @param rotation type of matrix
-	 * @param chain type of matrix
+         * LED를 앞으로 회전합니다. (표시하려면 '설정한대로 켜기' 블록 필요)
+         * @param offset 회전할 픽셀 수, eg: 1
          */
-        //% blockId=neopixel_set_matrix_width block="%strip|set matrix width %width|rotation %rotation|chain %chain"
-        //% blockGap=8
-        //% weight=5
-        //% parts="neopixel" advanced=true
-        setMatrixWidth(width: number, rotation: number, chain: number) {
-            this._matrixWidth = Math.min(this._length, width >> 0);
-            this._matrixRotation = rotation >> 0;
-            this._matrixChain = chain >> 0;
+        //% blockId="bitbox_rotate"
+        //% block="%strip| 라이트 %offset| 칸 회전"
+        //% strip.defl=strip
+        //% group="빛박 제어(심화)"
+        //% weight=49 blockGap=8
+        rotate(offset: number = 1): void {
+            offset = offset >> 0;
+            const stride = this.mode === NeoPixelMode.RGBW ? 4 : 3;
+            this.buffer.rotate(-offset * stride, this.start * stride, this._length * stride);
         }
 
         /**
-         * Set LED to a given color (range 0-255 for r, g, b) in a matrix shaped strip 
-         * You need to call ``show`` to make the changes visible.
-         * @param x horizontal position
-         * @param y horizontal position
-         * @param rgb RGB color of the LED
+         * 라이트의 개수를 가져옵니다.
          */
-        //% blockId="neopixel_set_matrix_color" block="%strip|set matrix color at x %x|y %y|to %rgb=neopixel_colors" 
-        //% weight=4
-        //% parts="neopixel" advanced=true
-        setMatrixColor(x: number, y: number, rgb: number) {
-            if (this._matrixWidth <= 0) return; // not a matrix, ignore
-            x = x >> 0;
-            y = y >> 0;
-            rgb = rgb >> 0;
-            const cols = Math.idiv(this._length, this._matrixWidth);
-
-            if (this._matrixRotation == 1) {
-                let t = y;
-                y = x;
-                x = t;
-            } else if (this._matrixRotation == 2) {
-                x = this._matrixWidth - x - 1;
-            }
-
-
-            // here be the physical mapping
-            if (this._matrixChain == 1 && y % 2 == 1) {
-                x = this._matrixWidth - x - 1;
-            }
-            if (x < 0 || x >= this._matrixWidth || y < 0 || y >= cols) return;
-
-            let i = x + y * this._matrixWidth;
-            this.setPixelColor(i, rgb);
-        }
-
-        /**
-         * For NeoPixels with RGB+W LEDs, set the white LED brightness. This only works for RGB+W NeoPixels.
-         * @param pixeloffset position of the LED in the strip
-         * @param white brightness of the white LED
-         */
-        //% blockId="neopixel_set_pixel_white" block="%strip|set pixel white LED at %pixeloffset|to %white" 
-        //% blockGap=8
-        //% weight=80
-        //% parts="neopixel" advanced=true
-        setPixelWhiteLED(pixeloffset: number, white: number): void {
-            if (this._mode === NeoPixelMode.RGBW) {
-                this.setPixelW(pixeloffset >> 0, white >> 0);
-            }
-        }
-
-
-        /**
-         * Send all the changes to the strip.
-         */
-        //% blockId="neopixel_show" block="%strip|show" blockGap=8
-        //% weight=79
-        //% parts="neopixel"
-        show() {
-            sendBuffer(this.buf, this.pin);
-        }
-
-        /**
-         * Turn off all LEDs.
-         * You need to call ``show`` to make the changes visible.
-         */
-        //% blockId="neopixel_clear" block="%strip|clear"
-        //% weight=76
-        //% parts="neopixel"
-        clear(): void {
-            const stride = this._mode === NeoPixelMode.RGBW ? 4 : 3;
-            this.buf.fill(0, this.start * stride, this._length * stride);
-        }
-
-        /**
-         * Gets the number of pixels declared on the strip
-         */
-        //% blockId="neopixel_length" block="%strip|length" blockGap=8
-        //% weight=60 advanced=true
-        length() {
+        //% blockId="bitbox_length"
+        //% block="%strip| 라이트의 개수"
+        //% strip.defl=strip
+        //% group="빛박 제어(심화)"
+        //% weight=40 blockGap=8
+        getLength() {
             return this._length;
         }
 
         /**
-         * Set the brightness of the strip. This flag only applies to future operation.
-         * @param brightness a measure of LED brightness in 0-255. eg: 255
+         * 매트릭스 형태의 LED 너비를 설정합니다.
+         * @param width 한 행의 LED 개수
+         * @param rotation 회전 방향
+         * @param chain 연결 방식
          */
-        //% blockId="neopixel_set_brightness" block="%strip|set brightness %brightness" blockGap=8
-        //% weight=59
-        //% parts="neopixel" advanced=true
-        setBrightness(brightness: number): void {
-            this.brightness = brightness & 0xff;
+        //% blockId="bitbox_set_matrix_width"
+        //% block="%strip| 매트릭스 너비: %width|, 회전: %rotation|, 연결: %chain"
+        //% strip.defl=strip
+        //% group="빛박 제어(심화)"
+        //% weight=30 blockGap=8
+        setMatrixWidth(width: number, rotation: number, chain: number) {
+            this.matrixWidth = Math.min(this._length, width >> 0);
+            this.matrixRotation = rotation >> 0;
+            this.matrixChain = chain >> 0;
         }
 
         /**
-         * Apply brightness to current colors using a quadratic easing function.
-         **/
-        //% blockId="neopixel_each_brightness" block="%strip|ease brightness" blockGap=8
-        //% weight=58
-        //% parts="neopixel" advanced=true
-        easeBrightness(): void {
-            const stride = this._mode === NeoPixelMode.RGBW ? 4 : 3;
-            const br = this.brightness;
-            const buf = this.buf;
-            const end = this.start + this._length;
-            const mid = Math.idiv(this._length, 2);
-            for (let i = this.start; i < end; ++i) {
-                const k = i - this.start;
-                const ledoffset = i * stride;
-                const br = k > mid
-                    ? Math.idiv(255 * (this._length - 1 - k) * (this._length - 1 - k), (mid * mid))
-                    : Math.idiv(255 * k * k, (mid * mid));
-                serial.writeLine(k + ":" + br);
-                const r = (buf[ledoffset + 0] * br) >> 8; buf[ledoffset + 0] = r;
-                const g = (buf[ledoffset + 1] * br) >> 8; buf[ledoffset + 1] = g;
-                const b = (buf[ledoffset + 2] * br) >> 8; buf[ledoffset + 2] = b;
-                if (stride == 4) {
-                    const w = (buf[ledoffset + 3] * br) >> 8; buf[ledoffset + 3] = w;
-                }
+         * 매트릭스 특정 위치의 LED 색상을 설정합니다. (표시하려면 '설정한대로 켜기' 블록 필요)
+         * @param x 가로 위치
+         * @param y 세로 위치
+         * @param rgb LED 색상
+         */
+        //% blockId="bitbox_set_matrix_color"
+        //% block="%strip| 매트릭스 x: %x|, y: %y| 위치 색상을 %rgb=bitbox_colors 으로 설정"
+        //% strip.defl=strip
+        //% group="빛박 제어(심화)"
+        //% weight=29 blockGap=8
+        setMatrixColor(x: number, y: number, rgb: number) {
+            if (this.matrixWidth <= 0) return;
+            x = x >> 0;
+            y = y >> 0;
+            rgb = rgb >> 0;
+            const cols = Math.idiv(this._length, this.matrixWidth);
+            if (this.matrixRotation == 1) {
+                let t = y; y = x; x = t;
+            } else if (this.matrixRotation == 2) {
+                x = this.matrixWidth - x - 1;
             }
-        }
-
-        /** 
-         * Create a range of LEDs.
-         * @param start offset in the LED strip to start the range
-         * @param length number of LEDs in the range. eg: 4
-         */
-        //% weight=89
-        //% blockId="neopixel_range" block="%strip|range from %start|with %length|leds"
-        //% parts="neopixel"
-        //% blockSetVariable=range
-        range(start: number, length: number): Strip {
-            start = start >> 0;
-            length = length >> 0;
-            let strip = new Strip();
-            strip.buf = this.buf;
-            strip.pin = this.pin;
-            strip.brightness = this.brightness;
-            strip.start = this.start + Math.clamp(0, this._length - 1, start);
-            strip._length = Math.clamp(0, this._length - (strip.start - this.start), length);
-            strip._matrixWidth = 0;
-            strip._mode = this._mode;
-            return strip;
+            if (this.matrixChain == 1 && y % 2 == 1) {
+                x = this.matrixWidth - x - 1;
+            }
+            if (x < 0 || x >= this.matrixWidth || y < 0 || y >= cols) return;
+            this.setPixelColor(x + y * this.matrixWidth, rgb);
         }
 
         /**
-         * Shift LEDs forward and clear with zeros.
-         * You need to call ``show`` to make the changes visible.
-         * @param offset number of pixels to shift forward, eg: 1
-         */
-        //% blockId="neopixel_shift" block="%strip|shift pixels by %offset" blockGap=8
-        //% weight=40
-        //% parts="neopixel"
-        shift(offset: number = 1): void {
-            offset = offset >> 0;
-            const stride = this._mode === NeoPixelMode.RGBW ? 4 : 3;
-            this.buf.shift(-offset * stride, this.start * stride, this._length * stride)
-        }
-
-        /**
-         * Rotate LEDs forward.
-         * You need to call ``show`` to make the changes visible.
-         * @param offset number of pixels to rotate forward, eg: 1
-         */
-        //% blockId="neopixel_rotate" block="%strip|rotate pixels by %offset" blockGap=8
-        //% weight=39
-        //% parts="neopixel"
-        rotate(offset: number = 1): void {
-            offset = offset >> 0;
-            const stride = this._mode === NeoPixelMode.RGBW ? 4 : 3;
-            this.buf.rotate(-offset * stride, this.start * stride, this._length * stride)
-        }
-
-        /**
-         * Set the pin where the neopixel is connected, defaults to P0.
+         * 네오픽셀이 연결된 핀을 설정합니다.
          */
         //% weight=10
-        //% parts="neopixel" advanced=true
         setPin(pin: DigitalPin): void {
             this.pin = pin;
             pins.digitalWritePin(this.pin, 0);
-            // don't yield to avoid races on initialization
-        }
-
-        /**
-         * Estimates the electrical current (mA) consumed by the current light configuration.
-         */
-        //% weight=9 blockId=neopixel_power block="%strip|power (mA)"
-        //% advanced=true
-        power(): number {
-            const stride = this._mode === NeoPixelMode.RGBW ? 4 : 3;
-            const end = this.start + this._length;
-            let p = 0;
-            for (let i = this.start; i < end; ++i) {
-                const ledoffset = i * stride;
-                for (let j = 0; j < stride; ++j) {
-                    p += this.buf[i + j];
-                }
-            }
-            return Math.idiv(this.length(), 2) /* 0.5mA per neopixel */
-                + Math.idiv(p * 433, 10000); /* rought approximation */
         }
 
         private setBufferRGB(offset: number, red: number, green: number, blue: number): void {
-            if (this._mode === NeoPixelMode.RGB_RGB) {
-                this.buf[offset + 0] = red;
-                this.buf[offset + 1] = green;
+            if (this.mode === NeoPixelMode.RGB_RGB) {
+                this.buffer[offset + 0] = red;
+                this.buffer[offset + 1] = green;
             } else {
-                this.buf[offset + 0] = green;
-                this.buf[offset + 1] = red;
+                this.buffer[offset + 0] = green;
+                this.buffer[offset + 1] = red;
             }
-            this.buf[offset + 2] = blue;
+            this.buffer[offset + 2] = blue;
         }
 
         private setAllRGB(rgb: number) {
             let red = unpackR(rgb);
             let green = unpackG(rgb);
             let blue = unpackB(rgb);
-
             const br = this.brightness;
             if (br < 255) {
                 red = (red * br) >> 8;
@@ -432,169 +377,343 @@ namespace neopixel {
                 blue = (blue * br) >> 8;
             }
             const end = this.start + this._length;
-            const stride = this._mode === NeoPixelMode.RGBW ? 4 : 3;
+            const stride = this.mode === NeoPixelMode.RGBW ? 4 : 3;
             for (let i = this.start; i < end; ++i) {
-                this.setBufferRGB(i * stride, red, green, blue)
+                this.setBufferRGB(i * stride, red, green, blue);
             }
         }
-        private setAllW(white: number) {
-            if (this._mode !== NeoPixelMode.RGBW)
-                return;
 
-            let br = this.brightness;
-            if (br < 255) {
-                white = (white * br) >> 8;
-            }
-            let buf = this.buf;
-            let end = this.start + this._length;
-            for (let i = this.start; i < end; ++i) {
-                let ledoffset = i * 4;
-                buf[ledoffset + 3] = white;
-            }
-        }
-        private setPixelRGB(pixeloffset: number, rgb: number): void {
-            if (pixeloffset < 0
-                || pixeloffset >= this._length)
-                return;
-
-            let stride = this._mode === NeoPixelMode.RGBW ? 4 : 3;
-            pixeloffset = (pixeloffset + this.start) * stride;
-
+        private setPixelRGB(pixelOffset: number, rgb: number): void {
+            if (pixelOffset < 0 || pixelOffset >= this._length) return;
+            let stride = this.mode === NeoPixelMode.RGBW ? 4 : 3;
+            pixelOffset = (pixelOffset + this.start) * stride;
             let red = unpackR(rgb);
             let green = unpackG(rgb);
             let blue = unpackB(rgb);
-
             let br = this.brightness;
             if (br < 255) {
                 red = (red * br) >> 8;
                 green = (green * br) >> 8;
                 blue = (blue * br) >> 8;
             }
-            this.setBufferRGB(pixeloffset, red, green, blue)
-        }
-        private setPixelW(pixeloffset: number, white: number): void {
-            if (this._mode !== NeoPixelMode.RGBW)
-                return;
-
-            if (pixeloffset < 0
-                || pixeloffset >= this._length)
-                return;
-
-            pixeloffset = (pixeloffset + this.start) * 4;
-
-            let br = this.brightness;
-            if (br < 255) {
-                white = (white * br) >> 8;
-            }
-            let buf = this.buf;
-            buf[pixeloffset + 3] = white;
+            this.setBufferRGB(pixelOffset, red, green, blue);
         }
     }
 
+    // ======================== 빛박 제어(기초) ========================
+
     /**
-     * Create a new NeoPixel driver for `numleds` LEDs.
-     * @param pin the pin where the neopixel is connected.
-     * @param numleds number of leds in the strip, eg: 24,30,60,64
+     * 네오픽셀 LED 스트립을 초기화합니다.
+     * @param pin 연결된 핀
+     * @param numLeds LED 개수, eg: 24,30,60,64
      */
-    //% blockId="neopixel_create" block="NeoPixel at pin %pin|with %numleds|leds as %mode"
-    //% weight=90 blockGap=8
-    //% parts="neopixel"
+    //% blockId="bitbox_create"
+    //% block="%pin| 에 연결된 %numLeds| 개의 %mode| 타입 라이트"
+    //% group="빛박 제어(기초)"
+    //% weight=100 blockGap=8
     //% trackArgs=0,2
     //% blockSetVariable=strip
-    export function create(pin: DigitalPin, numleds: number, mode: NeoPixelMode): Strip {
+    //% pin.defl=DigitalPin.P0
+    //% numLeds.defl=8
+    export function create(pin: DigitalPin, numLeds: number, mode: NeoPixelMode): Strip {
         let strip = new Strip();
         let stride = mode === NeoPixelMode.RGBW ? 4 : 3;
-        strip.buf = pins.createBuffer(numleds * stride);
+        strip.buffer = pins.createBuffer(numLeds * stride);
         strip.start = 0;
-        strip._length = numleds;
-        strip._mode = mode;
-        strip._matrixWidth = 0;
-        strip.setBrightness(255)
-        strip.setPin(pin)
+        strip._length = numLeds;
+        strip.mode = mode || NeoPixelMode.RGB;
+        strip.matrixWidth = 0;
+        strip.setBrightness(128);
+        strip.setPin(pin);
         return strip;
     }
 
+    // ======================== 색상 블록 ========================
+
     /**
-     * Converts red, green, blue channels into a RGB color
-     * @param red value of the red channel between 0 and 255. eg: 255
-     * @param green value of the green channel between 0 and 255. eg: 255
-     * @param blue value of the blue channel between 0 and 255. eg: 255
+     * 빨강, 초록, 파랑 값으로 색상을 만듭니다.
      */
-    //% weight=1
-    //% blockId="neopixel_rgb" block="red %red|green %green|blue %blue"
-    //% advanced=true
+    //% blockId="bitbox_rgb"
+    //% block="빨강(R): %red| 초록(G): %green| 파랑(B): %blue"
+    //% red.min=0 red.max=255
+    //% green.min=0 green.max=255
+    //% blue.min=0 blue.max=255
+    //% group="색상 블록"
+    //% weight=20 blockGap=8
     export function rgb(red: number, green: number, blue: number): number {
         return packRGB(red, green, blue);
     }
 
     /**
-     * Gets the RGB value of a known color
-    */
-    //% weight=2 blockGap=8
-    //% blockId="neopixel_colors" block="%color"
-    //% advanced=true
+     * 색상 팔레트에서 직접 색상을 선택합니다.
+     */
+    //% blockId="bitbox_pick_color"
+    //% block="색상 선택 %color"
+    //% color.shadow="colorNumberPicker"
+    //% group="색상 블록"
+    //% weight=40 blockGap=8
+    export function pickColor(color: number): number {
+        return packRGB(unpackR(color), unpackG(color), unpackB(color));
+    }
+
+    /**
+     * 지정한 색상의 값을 가져옵니다.
+     */
+    //% blockId="bitbox_colors"
+    //% block="%color"
+    //% group="색상 블록"
+    //% weight=30 blockGap=8
     export function colors(color: NeoPixelColors): number {
         return color;
+    }
+
+    /**
+     * 색조(H), 채도(S), 명도(L) 값으로 색상을 만듭니다.
+     */
+    //% blockId="bitboxHSL"
+    //% block="색조(H): %hue| 채도(S): %saturation| 명도(L): %luminance"
+    //% hue.min=0 hue.max=360
+    //% saturation.min=0 saturation.max=99
+    //% luminance.min=0 luminance.max=99
+    //% group="색상 블록"
+    //% weight=10 blockGap=8
+    export function hsl(hue: number, saturation: number, luminance: number): number {
+        hue = Math.round(hue);
+        saturation = Math.round(saturation);
+        luminance = Math.round(luminance);
+        hue = hue % 360;
+        saturation = Math.clamp(0, 99, saturation);
+        luminance = Math.clamp(0, 99, luminance);
+        let chroma = Math.idiv((((100 - Math.abs(2 * luminance - 100)) * saturation) << 8), 10000);
+        let hueSeg = Math.idiv(hue, 60);
+        let hueRem = Math.idiv((hue - hueSeg * 60) * 256, 60);
+        let temp = Math.abs((((hueSeg % 2) << 8) + hueRem) - 256);
+        let secondary = (chroma * (256 - temp)) >> 8;
+        let r: number;
+        let g: number;
+        let b: number;
+        if (hueSeg == 0) { r = chroma; g = secondary; b = 0; }
+        else if (hueSeg == 1) { r = secondary; g = chroma; b = 0; }
+        else if (hueSeg == 2) { r = 0; g = chroma; b = secondary; }
+        else if (hueSeg == 3) { r = 0; g = secondary; b = chroma; }
+        else if (hueSeg == 4) { r = secondary; g = 0; b = chroma; }
+        else if (hueSeg == 5) { r = chroma; g = 0; b = secondary; }
+        let match = Math.idiv((Math.idiv((luminance * 2 << 8), 100) - chroma), 2);
+        return packRGB(r + match, g + match, b + match);
+    }
+
+    // ======================== AI 데이터 활용 ========================
+
+    export enum UARTDataType {
+        //% block="X 좌표"
+        X,
+        //% block="Y 좌표"
+        Y,
+        //% block="너비"
+        W,
+        //% block="높이"
+        H,
+        //% block="객체 수"
+        D
+    }
+
+    export enum ColorDataType {
+        //% block="빨간색(R)"
+        R,
+        //% block="초록색(G)"
+        G,
+        //% block="파랑색(B)"
+        B,
+        //% block="클래스 ID(I)"
+        I
+    }
+
+    export enum ReturnFormat {
+        //% block="문자형"
+        String,
+        //% block="정수형"
+        Number
+    }
+
+    export enum FaceDataType {
+        //% block="X 좌표"
+        X,
+        //% block="Y 좌표"
+        Y,
+        //% block="거리(Z)"
+        Z,
+        //% block="좌우회전(Yaw)"
+        Yaw,
+        //% block="상하각도(Pitch)"
+        Pitch,
+        //% block="입벌림"
+        Mouth,
+        //% block="왼쪽 눈"
+        LeftEye,
+        //% block="오른쪽 눈"
+        RightEye,
+        //% block="기울기(Roll)"
+        Roll,
+        //% block="웃음"
+        Smile,
+        //% block="얼굴 감지 여부"
+        Visible
+    }
+
+    export enum HandDataType {
+        //% block="왼쪽 방향"
+        LeftDir,
+        //% block="왼쪽 속도"
+        LeftSpeed,
+        //% block="오른쪽 방향"
+        RightDir,
+        //% block="오른쪽 속도"
+        RightSpeed
+    }
+
+    /**
+     * 블루투스 수신 값에서 사물인식 데이터를 추출합니다.
+     */
+    //% group="AI 데이터 활용"
+    //% block="블루투스 수신 값: %data 에서 사물 %type 을 %format 으로 추출"
+    //% inlineInputMode=inline
+    //% weight=70
+    export function parseUARTUnified(data: string, type: UARTDataType, format: ReturnFormat): any {
+        if (data == "null" || data == "stop") {
+            return format == ReturnFormat.String ? data : -1;
+        }
+        let v = getValue(data, uartKey(type));
+        if (format == ReturnFormat.String) return v;
+        let num = parseInt(v);
+        return isNaN(num) ? -1 : num;
+    }
+
+    /**
+     * 블루투스 수신 값에서 컬러인식 데이터를 추출합니다.
+     */
+    //% group="AI 데이터 활용"
+    //% block="블루투스 수신 값: %data 에서 컬러 %color 을 %format 으로 추출"
+    //% inlineInputMode=inline
+    //% weight=69
+    export function parseColorUnified(data: string, color: ColorDataType, format: ReturnFormat): any {
+        if (data == "stop") {
+            return format == ReturnFormat.String ? data : -1;
+        }
+        let v = getValue(data, colorKey(color));
+        if (format == ReturnFormat.String) return v;
+        let num = parseInt(v);
+        return isNaN(num) ? -1 : num;
+    }
+
+    /**
+     * 블루투스 수신 값에서 얼굴인식 데이터를 추출합니다.
+     */
+    //% group="AI 데이터 활용"
+    //% block="블루투스 수신 값: %data 에서 얼굴 %type 추출"
+    //% weight=68
+    export function parseFaceUnified(data: string, type: FaceDataType): number {
+        if (data == "stop" || data.length < 19) return -1;
+        let valStr = "";
+        switch (type) {
+            case FaceDataType.X:        valStr = data.substr(0, 2);  break;
+            case FaceDataType.Y:        valStr = data.substr(2, 2);  break;
+            case FaceDataType.Z:        valStr = data.substr(4, 2);  break;
+            case FaceDataType.Yaw:      valStr = data.substr(6, 2);  break;
+            case FaceDataType.Pitch:    valStr = data.substr(8, 2);  break;
+            case FaceDataType.Mouth:    valStr = data.substr(10, 2); break;
+            case FaceDataType.LeftEye:  valStr = data.substr(12, 2); break;
+            case FaceDataType.RightEye: valStr = data.substr(14, 2); break;
+            case FaceDataType.Roll:     valStr = data.substr(16, 1); break;
+            case FaceDataType.Smile:    valStr = data.substr(17, 1); break;
+            case FaceDataType.Visible:  valStr = data.substr(18, 1); break;
+        }
+        let num = parseInt(valStr);
+        return isNaN(num) ? -1 : num;
+    }
+
+    /**
+     * 블루투스 수신 값에서 핸드포즈 데이터를 추출합니다.
+     * 패킷 포맷: L{D}{SSS}R{D}{SSS} (예: LF255RB255)
+     */
+    //% group="AI 데이터 활용"
+    //% block="블루투스 수신 값: %data 에서 핸드포즈 %type 을 %format 으로 추출"
+    //% inlineInputMode=inline
+    //% weight=67
+    export function parseHandPoseUnified(data: string, type: HandDataType, format: ReturnFormat): any {
+        if (data == "stop" || data.length < 10 || data.charAt(0) != "L") {
+            return format == ReturnFormat.String ? "0" : -1;
+        }
+        let valStr = "";
+        switch (type) {
+            case HandDataType.LeftDir:
+                valStr = data.charAt(1);
+                if (format == ReturnFormat.Number) {
+                    return valStr == "F" ? 1 : (valStr == "B" ? -1 : 0);
+                }
+                return valStr;
+            case HandDataType.LeftSpeed:
+                valStr = data.substr(2, 3);
+                break;
+            case HandDataType.RightDir:
+                valStr = data.charAt(6);
+                if (format == ReturnFormat.Number) {
+                    return valStr == "F" ? 1 : (valStr == "B" ? -1 : 0);
+                }
+                return valStr;
+            case HandDataType.RightSpeed:
+                valStr = data.substr(7, 3);
+                break;
+        }
+        if (format == ReturnFormat.String) return valStr;
+        let num = parseInt(valStr);
+        return isNaN(num) ? 0 : num;
+    }
+
+    // ======================== 내부 헬퍼 함수 ========================
+
+    function getValue(data: string, key: string): string {
+        let start = data.indexOf(key);
+        if (start < 0) return "";
+        let end = data.length;
+        const keys = ["x", "y", "w", "h", "d", "I", "R", "G", "B", "\n"];
+        for (let k of keys) {
+            if (k != key) {
+                const i = data.indexOf(k, start + 1);
+                if (i >= 0 && i < end) {
+                    end = i;
+                }
+            }
+        }
+        return data.substr(start + 1, end - start - 1);
+    }
+
+    function uartKey(type: UARTDataType): string {
+        switch (type) {
+            case UARTDataType.X: return "x";
+            case UARTDataType.Y: return "y";
+            case UARTDataType.W: return "w";
+            case UARTDataType.H: return "h";
+            case UARTDataType.D: return "d";
+            default: return "";
+        }
+    }
+
+    function colorKey(color: ColorDataType): string {
+        switch (color) {
+            case ColorDataType.R: return "R";
+            case ColorDataType.G: return "G";
+            case ColorDataType.B: return "B";
+            case ColorDataType.I: return "I";
+            default: return "";
+        }
     }
 
     function packRGB(a: number, b: number, c: number): number {
         return ((a & 0xFF) << 16) | ((b & 0xFF) << 8) | (c & 0xFF);
     }
-    function unpackR(rgb: number): number {
-        let r = (rgb >> 16) & 0xFF;
-        return r;
-    }
-    function unpackG(rgb: number): number {
-        let g = (rgb >> 8) & 0xFF;
-        return g;
-    }
-    function unpackB(rgb: number): number {
-        let b = (rgb) & 0xFF;
-        return b;
-    }
-
-    /**
-     * Converts a hue saturation luminosity value into a RGB color
-     * @param h hue from 0 to 360
-     * @param s saturation from 0 to 99
-     * @param l luminosity from 0 to 99
-     */
-    //% blockId=neopixelHSL block="hue %h|saturation %s|luminosity %l"
-    export function hsl(h: number, s: number, l: number): number {
-        h = Math.round(h);
-        s = Math.round(s);
-        l = Math.round(l);
-
-        h = h % 360;
-        s = Math.clamp(0, 99, s);
-        l = Math.clamp(0, 99, l);
-        let c = Math.idiv((((100 - Math.abs(2 * l - 100)) * s) << 8), 10000); //chroma, [0,255]
-        let h1 = Math.idiv(h, 60);//[0,6]
-        let h2 = Math.idiv((h - h1 * 60) * 256, 60);//[0,255]
-        let temp = Math.abs((((h1 % 2) << 8) + h2) - 256);
-        let x = (c * (256 - (temp))) >> 8;//[0,255], second largest component of this color
-        let r$: number;
-        let g$: number;
-        let b$: number;
-        if (h1 == 0) {
-            r$ = c; g$ = x; b$ = 0;
-        } else if (h1 == 1) {
-            r$ = x; g$ = c; b$ = 0;
-        } else if (h1 == 2) {
-            r$ = 0; g$ = c; b$ = x;
-        } else if (h1 == 3) {
-            r$ = 0; g$ = x; b$ = c;
-        } else if (h1 == 4) {
-            r$ = x; g$ = 0; b$ = c;
-        } else if (h1 == 5) {
-            r$ = c; g$ = 0; b$ = x;
-        }
-        let m = Math.idiv((Math.idiv((l * 2 << 8), 100) - c), 2);
-        let r = r$ + m;
-        let g = g$ + m;
-        let b = b$ + m;
-        return packRGB(r, g, b);
-    }
+    function unpackR(rgb: number): number { return (rgb >> 16) & 0xFF; }
+    function unpackG(rgb: number): number { return (rgb >> 8) & 0xFF; }
+    function unpackB(rgb: number): number { return rgb & 0xFF; }
 
     export enum HueInterpolationDirection {
         Clockwise,
